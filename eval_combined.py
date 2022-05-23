@@ -1,8 +1,16 @@
+
+"""
+*******************************************************************
+
+Finetune a model with the combined dataset
+
+*******************************************************************
+"""
+
 import argparse
 import math
-import re
-import os
 
+import os,re
 from functools import partial
 from tqdm.auto import tqdm
 from typing import Collection, Callable
@@ -13,14 +21,14 @@ import numpy as np
 import wandb
 import torch
 from transformers import (
-    AdamW, 
-    get_linear_schedule_with_warmup, 
-    get_constant_schedule, 
-    AutoTokenizer, 
+    AdamW,
+    get_linear_schedule_with_warmup,
+    get_constant_schedule,
+    AutoTokenizer,
     AutoModel,
-    AutoModelForQuestionAnswering, 
+    AutoModelForQuestionAnswering,
     AutoConfig,
-    Trainer, 
+    Trainer,
     TrainingArguments,
     CamembertTokenizerFast,
     BertTokenizerFast,
@@ -30,8 +38,6 @@ from transformers import (
     DataCollatorWithPadding,
 )
 from transformers import PreTrainedTokenizerFast
-from models.cool import *
-
 
 from datasets import (
     load_dataset,
@@ -67,7 +73,6 @@ TOKENIZERS = {
     'wangchanberta-base-wiki-ssg': ThaiWordsSyllableTokenizer,
     'wangchanberta-base-wiki-sefr': FakeSefrCutTokenizer,
     'wangchanberta-base-wiki-spm': ThaiRobertaTokenizer,
-    'wangchanberta-base-wiki-20210520-news-spm': AutoTokenizer
 }
 WANGCHANBERTA_MODELS = [
     'wangchanberta-base-att-spm-uncased',
@@ -75,7 +80,7 @@ WANGCHANBERTA_MODELS = [
     'wangchanberta-base-wiki-ssg',
     'wangchanberta-base-wiki-sefr',
     'wangchanberta-base-wiki-spm',
-] 
+]
 
 #make thaiqa looks like iapp
 def convert_thaiqa_to_iapp(example):
@@ -109,12 +114,12 @@ def lowercase_example(example):
     return example
 
 def init_model_tokenizer(model_name, model_max_length):
-    
+
 
     if model_name in TOKENIZERS.keys():
         tokenizer = TOKENIZERS[model_name].from_pretrained(
                         f'airesearch/{model_name}' if model_name in WANGCHANBERTA_MODELS else model_name,
-                        revision=args.revision, 
+                        revision=args.revision,
                         model_max_length=model_max_length,)
     else:
         tokenizer = AutoTokenizer.from_pretrained(
@@ -122,27 +127,24 @@ def init_model_tokenizer(model_name, model_max_length):
                         revision=args.revision,
                         model_max_length=model_max_length,)
 
-        
-    if args.eval_base:
-        model = AutoModelForQuestionAnswering.from_pretrained(
+
+    model = AutoModelForQuestionAnswering.from_pretrained(
             f'airesearch/{model_name}' if model_name in WANGCHANBERTA_MODELS else model_name,
             revision=args.revision,
             )
-    if args.eval_cool:
-        model = COOL_Conv(model_name_or_path=model_name,num_layers=args.num_outlook_layers)
 
     print(f'\n[INFO] Model architecture: {model} \n\n')
     print(f'\n[INFO] tokenizer: {tokenizer} \n\n')
 
     return model, tokenizer
 
-def init_trainer(model, 
-                 train_dataset, 
+def init_trainer(model,
+                 train_dataset,
                  val_dataset,
-                 args, 
+                 args,
                  data_collator,
-                 tokenizer,): 
-        
+                 tokenizer,):
+
     training_args = TrainingArguments(
                         num_train_epochs=args.num_train_epochs,
                         per_device_train_batch_size=args.batch_size,
@@ -174,7 +176,7 @@ def init_trainer(model,
                         prediction_loss_only=False,
                         run_name=args.run_name
                     )
-    
+
     trainer = Trainer(
         model=model,
         args=training_args,
@@ -190,8 +192,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     # Required
     parser.add_argument('--model_name', type=str, help='Model names on Huggingface for tokenizers and architectures')
-    parser.add_argument('--eval_base', action='store_true', default=False)
-    parser.add_argument('--eval_cool', action='store_true', default=False)
     parser.add_argument('--revision', type=str, default='main', help='Specify branch of model')
     parser.add_argument('--dataset_name', help='Specify the dataset name to finetune. Currently, sequence classification datasets include `thaiqa_squad` and `iapp_wiki_qa_squad`.')
     parser.add_argument('--output_dir', type=str)
@@ -220,7 +220,7 @@ if __name__ == '__main__':
     parser.add_argument('--max_answer_length', type=int, default=100)
     parser.add_argument('--doc_stride', type=int, default=128)
     parser.add_argument('--allow_no_answer', action='store_true', default=False)
-    
+
     #column names; default to SQuAD naming
     parser.add_argument('--question_col', type=str, default='question')
     parser.add_argument('--context_col', type=str, default='context')
@@ -234,11 +234,6 @@ if __name__ == '__main__':
     # wandb
     parser.add_argument('--run_name', type=str, default=None)
 
-    # self-added
-    parser.add_argument(
-        "--num_outlook_layers", default=2, type=int, help="Total number of outlook layers."
-    )
-
     args = parser.parse_args()
 
     os.environ["CUDA_VISIBLE_DEVICES"]=args.gpu
@@ -248,7 +243,7 @@ if __name__ == '__main__':
     torch.backends.cudnn.benchmark = False
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
-    
+
     print(f'\n\n[INFO] Initialize model and tokenizer')
     model, tokenizer = init_model_tokenizer(model_name=args.model_name,
                                             model_max_length=args.model_max_length)
@@ -256,51 +251,33 @@ if __name__ == '__main__':
                                             padding=True,
                                             pad_to_multiple_of=8 if args.fp16 else None)
 
-    # print(f'\n\n[INFO] Dataset: {args.dataset_name}')
-    # if args.dataset_name in ['iapp_thaiqa_xquad','chimera_qa']:
-    #     print(f'\n\n[INFO] For `iapp_thaiqa_xquad` / `chimera_qa` dataset where you run `combine_iapp_qa.py` / `create_chimera_qa.py` and save combined dataset (use directory path as `dataset_name`)')
-    #     datasets = load_from_disk(args.dataset_name)
-    # else:
-    #     datasets = load_dataset(args.dataset_name)
-    # print(f'dataset: {datasets}')
+    print(f'\n\n[INFO] Dataset: {args.dataset_name}')
 
-    # if args.dataset_name in ['thaiqa_squad']:
-    #     datasets=datasets.map(convert_thaiqa_to_iapp)
-    # elif args.dataset_name in ['xquad','zhufy/xquad_split']:
-    #     datasets=datasets.map(convert_xquad_to_iapp)
-
-    # if args.lowercase:
-    #     print(f'\n\n[INFO] Lowercaing datasets')
-    #     datasets = datasets.map(lowercase_example)
 
     root='./utils/'
-    # args.dataset_name in ['iapp_thaiqa_xquad', 'thaiqa_iapp_xquad', 'xquad_iapp_thaiqa','chimera_qa']:
     datasets_iapp = load_from_disk(os.path.join(root,'iapp_thaiqa_xquad'))
     datasets_thaiqa = load_from_disk(os.path.join(root,'thaiqa_iapp_xquad'))
     datasets_xquad = load_from_disk(os.path.join(root,'xquad_iapp_thaiqa'))
 
     if args.lowercase:
         print(f'\n\n[INFO] Lowercaing datasets')
-        #datasets = datasets.map(lowercase_example)
         datasets_iapp = datasets_iapp.map(lowercase_example)
         datasets_thaiqa = datasets_thaiqa.map(lowercase_example)
         datasets_xquad= datasets_xquad.map(lowercase_example)
-        
+
+
     print(f'\n\n[INFO] Prepare training features')
-    # tokenized_datasets = datasets.map(lambda x: prepare_qa_train_features(x, tokenizer), 
-    #                                   batched=True, 
-    #                                   remove_columns=datasets["train"].column_names
-    #                                   )
-    tokenized_datasets_iapp = datasets_iapp.map(lambda x: prepare_qa_train_features(x, tokenizer), 
-                                      batched=True, 
+
+    tokenized_datasets_iapp = datasets_iapp.map(lambda x: prepare_qa_train_features(x, tokenizer),
+                                      batched=True,
                                       remove_columns=datasets_iapp["train"].column_names
                                       )
-    tokenized_datasets_thaiqa = datasets_thaiqa.map(lambda x: prepare_qa_train_features(x, tokenizer), 
-                                      batched=True, 
+    tokenized_datasets_thaiqa = datasets_thaiqa.map(lambda x: prepare_qa_train_features(x, tokenizer),
+                                      batched=True,
                                       remove_columns=datasets_thaiqa["train"].column_names
                                       )
-    tokenized_datasets_xquad = datasets_xquad.map(lambda x: prepare_qa_train_features(x, tokenizer), 
-                                      batched=True, 
+    tokenized_datasets_xquad = datasets_xquad.map(lambda x: prepare_qa_train_features(x, tokenizer),
+                                      batched=True,
                                       remove_columns=datasets_xquad["train"].column_names
                                       )
 
@@ -324,23 +301,18 @@ if __name__ == '__main__':
     print(training_args)
     print('\n')
 
-    # print('\nBegin model finetuning.')
-    # trainer.train()
-    # print('Done.\n')
+    print('\nBegin model finetuning.')
+    trainer.train()
+    print('Done.\n')
 
 
-    # print('[INFO] Done.\n')
-    # print('[INDO] Begin saving best checkpoint.')
-    # trainer.save_model(os.path.join(args.output_dir, 'checkpoint-best'))
-    
-    # print('[INFO] Done.\n')
+    print('[INFO] Done.\n')
+    print('[INDO] Begin saving best checkpoint.')
+    trainer.save_model(os.path.join(args.output_dir, 'checkpoint-best'))
+
+    print('[INFO] Done.\n')
     print('[INDO] Begin loading best checkpoint.')
-    if args.eval_base:
-        model = AutoModelForQuestionAnswering.from_pretrained(os.path.join(args.output_dir, 'checkpoint-best'))
-    if args.eval_cool:
-        model = COOL_Conv(model_name_or_path=args.model_name,num_layers=args.num_outlook_layers)
-    checkpoints = torch.load(os.path.join(args.output_dir, 'checkpoint-best','pytorch_model.bin'))
-    model.load_state_dict(checkpoints)
+    model = AutoModelForQuestionAnswering.from_pretrained(os.path.join(args.output_dir, 'checkpoint-best'))
     trainer, training_args = init_trainer(model=model,
                                 train_dataset=tokenized_datasets_iapp['train'],
                                 val_dataset=tokenized_datasets_iapp['validation'],
@@ -350,12 +322,7 @@ if __name__ == '__main__':
 
     print('[INFO] Done.\n')
     print('\nBegin model evaluation on test set.')
-    
 
-    if args.eval_base:
-        save_name = '-'.join((args.dataset_name,args.model_name))
-    if args.eval_cool:
-        save_name = '-'.join((args.dataset_name,args.model_name,'cool'))
 
     result_iapp,_,_ = question_answering_metrics(datasets=datasets_iapp['test'],
                                         trainer=trainer,
@@ -374,7 +341,7 @@ if __name__ == '__main__':
                                         doc_stride=args.doc_stride,
                                         allow_no_answer=args.allow_no_answer,
                                         save_predictions=True,
-                                        suffix='combined_iapp_{}'.format(args.model_name))
+                                        suffix='combined_iapp')
 
     result_thaiqa,_,_ = question_answering_metrics(datasets=datasets_thaiqa['test'],
                                         trainer=trainer,
@@ -393,7 +360,7 @@ if __name__ == '__main__':
                                         doc_stride=args.doc_stride,
                                         allow_no_answer=args.allow_no_answer,
                                         save_predictions=True,
-                                        suffix='combined_thaiqa_{}'.format(args.model_name))
+                                        suffix='combined_thaiqa')
 
     result_xquad,_,_ = question_answering_metrics(datasets=datasets_xquad['test'],
                                         trainer=trainer,
@@ -412,13 +379,14 @@ if __name__ == '__main__':
                                         doc_stride=args.doc_stride,
                                         allow_no_answer=args.allow_no_answer,
                                         save_predictions=True,
-                                        suffix='combined_xquad_{}'.format(args.model_name))
+                                        suffix='combined_xquad')
 
+    #print(f'Evaluation on test set (dataset: {args.dataset_name})')
     print('iapp: ',result_iapp)
     print('thaiqa: ',result_thaiqa)
     print('xquad: ',result_xquad)
-    
-    
+
+
     """
     #record to wandb
     wandb.run.summary['test-set_exact_match'] = result_word['exact_match']
