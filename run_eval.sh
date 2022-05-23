@@ -3,7 +3,7 @@ python eval_combined.py \
   --model_name bert-base-multilingual-cased\
   --eval_base \
   --dataset_name iapp_wiki_qa_squad\
-  --output_dir /home/fangyi/saved/thai/combined/bert-base-multilingual-cased\
+  --output_dir ~/saved/thai/combined/bert-base-multilingual-cased\
   --log_dir ./test/\
   --lowercase \
   --pad_on_right \
